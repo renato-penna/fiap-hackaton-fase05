@@ -219,9 +219,13 @@ if uploaded_file is not None and model is not None:
                 # Análises detalhadas por componente
                 for analise in arch_analysis['analyses']:
                     componente = analise.get('component', 'Desconhecido')
-                    categoria = analise.get('category', 'Não Identificado')
+                    element_type = analise.get('element_type', 'Element')
+                    stride_summary = analise.get('stride_summary', '')
                     
-                    with st.expander(f"📌 {componente} ({categoria})", expanded=False):
+                    # Formato regra de ouro: Elemento (Tipo) → STRIDE: X, Y, Z
+                    expander_title = f"📌 {componente} ({element_type}) → STRIDE: {stride_summary}"
+                    
+                    with st.expander(expander_title, expanded=False):
                         # Descrição
                         if 'description' in analise:
                             st.caption(analise['description'])
@@ -292,15 +296,22 @@ else:
         3. **Evite diagramas muito complexos** - o modelo foi treinado em diagramas típicos
         4. **Ajuste o threshold** se componentes não forem detectados
         
-        ### O que o sistema detecta:
+        ### O que o sistema detecta (14 categorias STRIDE):
         
         | Categoria | Exemplos |
         |-----------|----------|
-        | Compute | EC2, Lambda, EKS, Containers |
-        | Database | RDS, DynamoDB, Aurora, Redis |
-        | Storage | S3, EBS, Glacier |
-        | Network | VPC, Gateway, Load Balancer |
-        | Security | WAF, Firewall, IAM |
-        | API Gateway | API Gateway, CloudFront, ALB |
-        | Messaging | SQS, SNS, EventBridge |
+        | Compute | EC2, Lambda, EKS, Fargate, VM, SEI, SIP |
+        | Database | RDS, DynamoDB, Aurora, Redis, Cosmos DB |
+        | Storage | S3, EBS, EFS, Glacier, Blob Storage |
+        | Network | VPC, Load Balancer, CloudFront, Route 53 |
+        | Security | IAM, WAF, KMS, Cognito, GuardDuty |
+        | API Gateway | API Gateway, AppSync, Apigee |
+        | Messaging | SQS, SNS, SES, EventBridge, Kinesis |
+        | Monitoring | CloudWatch, CloudTrail, X-Ray |
+        | Identity | User, Client, Active Directory |
+        | ML/AI | SageMaker, Rekognition, Vertex AI |
+        | DevOps | CodePipeline, ECR, CloudFormation |
+        | Serverless | Lambda, Step Functions, Cloud Functions |
+        | Analytics | Athena, Glue, BigQuery, Redshift |
+        | Other | Componentes não mapeados |
         """)

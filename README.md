@@ -24,6 +24,11 @@ cloud-arch-security-mvp/
 │   ├── train/images/labels/   # Conjunto de treino
 │   ├── valid/images/labels/   # Conjunto de validação
 │   └── test/images/labels/    # Conjunto de teste
+├── diagram/                    # Diagramas customizados para anotação
+│   ├── imagem01.png           # Diagrama customizado
+│   └── imagem01.json          # Anotações LabelMe (JSON)
+├── kaggle_dataset_cache/       # Cache do dataset Kaggle original
+│   └── kaggle_dataset_cache.zip
 ├── models/
 │   ├── best.pt                # Modelo YOLO treinado
 │   └── yolo11n.pt             # Modelo base YOLO
@@ -32,7 +37,8 @@ cloud-arch-security-mvp/
 │   ├── stride_engine.py       # Motor de análise STRIDE
 │   ├── train_model.py         # Script de treino local
 │   ├── train_colab.ipynb      # Notebook para Google Colab
-│   └── analyze_dataset.py     # Análise do dataset
+│   └── analyze_dataset.py     # Análise do dataset (evolução)
+├── prepare_dataset.py          # Prepara dataset: Kaggle + anotações customizadas
 └── requirements.txt           # Dependências Python
 ```
 
@@ -70,11 +76,22 @@ streamlit run app.py
 
 ### Opção 1: Google Colab (Recomendado)
 
-1. Faça upload do dataset para o Google Drive em `/colab/cloud-arch-security-mvp/dataset/`
-2. Abra o notebook `src/train_colab.ipynb` no Colab
-3. Execute todas as células
-4. O modelo treinado será salvo em `weights_backup/best_optimized.pt`
-5. Copie o modelo para `models/best.pt` localmente
+1. **Prepare o dataset localmente:**
+   ```bash
+   python prepare_dataset.py
+   ```
+   Isso combina o dataset Kaggle + suas anotações customizadas (pasta `diagram/`)
+
+2. **Faça upload** do arquivo `dataset_ready.zip` para o Google Drive em:
+   ```
+   My Drive/colab/cloud-arch-security-mvp/kaggle_dataset_cache/dataset_ready.zip
+   ```
+
+3. **Abra** o notebook `src/train_colab.ipynb` no Google Colab
+
+4. **Execute** todas as células - o treinamento suporta **checkpoint/resume**
+
+5. **Baixe** o modelo treinado de `weights_backup/best_kaggle.pt` e copie para `models/best.pt`
 
 ### Opção 2: Treino Local (GPU necessária)
 
@@ -88,25 +105,26 @@ python train_model.py
 - Mínimo 4GB VRAM (recomendado 8GB+)
 - NVIDIA RTX 2060 ou superior
 
-## 📊 Categorias Detectadas
+## 📊 Categorias Detectadas (14 Categorias STRIDE + Other)
 
-O modelo foi otimizado para detectar as seguintes categorias de componentes:
+O modelo foi treinado para detectar **15 categorias** de componentes cloud (AWS/Azure/GCP):
 
 | Categoria | Componentes Exemplo |
 |-----------|---------------------|
-| **compute** | EC2, Lambda, EKS, Containers |
-| **database** | RDS, DynamoDB, Aurora, Redis |
-| **storage** | S3, EBS, Glacier, File Share |
-| **network** | VPC, Gateway, Subnet, Endpoint |
-| **security** | WAF, Firewall, Shield, GuardDuty |
-| **api_gateway** | API Gateway, ALB, CloudFront |
-| **messaging** | SQS, SNS, EventBridge |
+| **compute** | EC2, Lambda, EKS, Fargate, VM, SEI, SIP |
+| **database** | RDS, DynamoDB, Aurora, Redis, Cosmos DB |
+| **storage** | S3, EBS, EFS, Glacier, Blob Storage |
+| **network** | VPC, Load Balancer, CloudFront, Route 53 |
+| **security** | IAM, WAF, KMS, Cognito, GuardDuty |
+| **api_gateway** | API Gateway, AppSync, Apigee |
+| **messaging** | SQS, SNS, SES, EventBridge, Kinesis |
 | **monitoring** | CloudWatch, CloudTrail, X-Ray |
-| **identity** | IAM, Cognito, AAD |
-| **ml_ai** | SageMaker, Rekognition, Lex |
-| **devops** | CodePipeline, Jenkins, GitHub |
-| **serverless** | Lambda, Fargate, Step Functions |
-| **groups** | VPC, Region, Availability Zone |
+| **identity** | User, Client, Active Directory |
+| **ml_ai** | SageMaker, Rekognition, Vertex AI |
+| **devops** | CodePipeline, ECR, CloudFormation |
+| **serverless** | Lambda, Step Functions, Cloud Functions |
+| **analytics** | Athena, Glue, BigQuery, Redshift |
+| **other** | Componentes não mapeados |
 
 ## 🔐 Metodologia STRIDE
 

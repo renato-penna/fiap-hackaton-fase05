@@ -43,6 +43,7 @@ class StrideEngine:
         'ml_ai': '_analyze_ml_ai',
         'devops': '_analyze_devops',
         'serverless': '_analyze_serverless',
+        'analytics': '_analyze_analytics',
         'groups': '_analyze_groups',
         'other': '_analyze_other',
     }
@@ -242,6 +243,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "Compute",
+            "element_type": "Process",
+            "stride_summary": "S, T, D, E",
             "description": "Recursos de processamento (VMs, containers, instâncias)",
             "risks": [
                 {
@@ -280,6 +283,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "Database",
+            "element_type": "Data Store",
+            "stride_summary": "S, T, I, D",
             "description": "Sistemas de armazenamento de dados estruturados",
             "risks": [
                 {
@@ -318,6 +323,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "Storage",
+            "element_type": "Data Store",
+            "stride_summary": "T, I, R",
             "description": "Armazenamento de objetos, arquivos e backups",
             "risks": [
                 {
@@ -349,6 +356,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "Network",
+            "element_type": "Data Flow",
+            "stride_summary": "S, I, D",
             "description": "Componentes de infraestrutura de rede",
             "risks": [
                 {
@@ -380,6 +389,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "Security Control",
+            "element_type": "Trust Boundary",
+            "stride_summary": "✅ Proteção",
             "description": "Controle de segurança ativo na arquitetura",
             "note": "✅ Componente de proteção detectado! Verifique se as regras estão atualizadas.",
             "risks": [
@@ -398,6 +409,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "API Gateway",
+            "element_type": "Interactor/Process",
+            "stride_summary": "S, T, I, D, E",
             "description": "Ponto de entrada para APIs e serviços",
             "risks": [
                 {
@@ -436,6 +449,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "Messaging",
+            "element_type": "Data Flow",
+            "stride_summary": "T, I, D",
             "description": "Serviços de filas e eventos assíncronos",
             "risks": [
                 {
@@ -467,6 +482,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "Monitoring",
+            "element_type": "Data Store",
+            "stride_summary": "T, I",
             "description": "Serviço de monitoramento e observabilidade",
             "note": "✅ Componente de observabilidade detectado! Essencial para detecção de incidentes.",
             "risks": [
@@ -492,6 +509,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "Identity",
+            "element_type": "Trust Boundary",
+            "stride_summary": "S, R, E",
             "description": "Gerenciamento de identidades e acessos",
             "risks": [
                 {
@@ -523,6 +542,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "ML/AI",
+            "element_type": "Process",
+            "stride_summary": "T, I",
             "description": "Serviços de inteligência artificial e machine learning",
             "risks": [
                 {
@@ -547,6 +568,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "DevOps",
+            "element_type": "Process",
+            "stride_summary": "T, I, E",
             "description": "Ferramentas de CI/CD e automação",
             "risks": [
                 {
@@ -578,6 +601,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "Serverless",
+            "element_type": "Process",
+            "stride_summary": "I, D, E",
             "description": "Funções e serviços serverless",
             "risks": [
                 {
@@ -604,11 +629,46 @@ class StrideEngine:
             ]
         }
     
+    def _analyze_analytics(self, component: str) -> Dict[str, Any]:
+        """Análise STRIDE para serviços de analytics e data warehouse."""
+        return {
+            "component": component,
+            "category": "Analytics",
+            "element_type": "Data Store/Process",
+            "stride_summary": "T, I, D",
+            "description": "Serviços de analytics, ETL e data warehouse",
+            "risks": [
+                {
+                    "type": "Information Disclosure",
+                    "threat": "I - Vazamento de Informações",
+                    "detail": "Dados sensíveis processados em pipelines de analytics podem ser expostos.",
+                    "mitigation": "Implementar data masking. Criptografar dados em repouso e trânsito. Usar VPC endpoints.",
+                    "severity": "HIGH"
+                },
+                {
+                    "type": "Tampering",
+                    "threat": "T - Adulteração",
+                    "detail": "Pipelines ETL podem ser manipulados para corromper dados downstream.",
+                    "mitigation": "Versionar pipelines. Implementar validação de dados. Usar checksums.",
+                    "severity": "MEDIUM"
+                },
+                {
+                    "type": "Denial of Service",
+                    "threat": "D - Negação de Serviço",
+                    "detail": "Queries mal otimizadas podem consumir recursos excessivos.",
+                    "mitigation": "Configurar timeouts e limites de recursos. Usar workload management.",
+                    "severity": "MEDIUM"
+                }
+            ]
+        }
+    
     def _analyze_groups(self, component: str) -> Dict[str, Any]:
         """Análise para grupos/boundaries (VPC, Regions, AZs)."""
         return {
             "component": component,
             "category": "Trust Boundary",
+            "element_type": "Trust Boundary",
+            "stride_summary": "I, E",
             "description": "Agrupamento lógico ou boundary de confiança",
             "risks": [
                 {
@@ -634,6 +694,8 @@ class StrideEngine:
         return {
             "component": component,
             "category": "Uncategorized",
+            "element_type": "Unknown",
+            "stride_summary": "?",
             "description": "Componente não categorizado",
             "note": f"ℹ️ O componente '{component}' foi detectado mas não possui regras STRIDE específicas.",
             "risks": [
