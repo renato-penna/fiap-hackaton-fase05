@@ -23,3 +23,6 @@ torchvision>=0.15.0
 pyyaml>=6.0              # Parsing de YAML
 numpy>=1.24.0            # Operações numéricas
 matplotlib>=3.7.0        # Visualizações (opcional)
+
+# Database
+psycopg2-binary>=2.9.0   # Driver PostgreSQL

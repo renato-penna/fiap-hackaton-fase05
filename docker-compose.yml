@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: stride-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: stride_reports
+      POSTGRES_USER: stride
+      POSTGRES_PASSWORD: stride_mvp_2026
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./src/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  pgdata:

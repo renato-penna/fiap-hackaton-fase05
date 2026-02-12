@@ -14,6 +14,14 @@ from stride_engine import StrideEngine
 from PIL import Image
 import os
 import json
+from datetime import datetime
+
+# Database (opcional - funciona sem Docker se BD não estiver disponível)
+try:
+    from database import save_report, list_reports, get_report, delete_report, get_stats, is_db_available
+    DB_AVAILABLE = is_db_available()
+except Exception:
+    DB_AVAILABLE = False
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
@@ -281,12 +289,108 @@ if uploaded_file is not None and model is not None:
                     file_name="security_report.json",
                     mime="application/json"
                 )
+                
+                # Persistir no banco de dados
+                if DB_AVAILABLE:
+                    report_id = save_report(
+                        filename=uploaded_file.name,
+                        risk_level=arch_analysis['risk_level'],
+                        risk_score=arch_analysis['risk_score'],
+                        total_components=arch_analysis['total_components'],
+                        total_risks=arch_analysis['total_risks'],
+                        security_controls=arch_analysis['security_controls'],
+                        detections=detections,
+                        stride_analyses=arch_analysis['analyses'],
+                    )
+                    if report_id:
+                        st.success(f"💾 Relatório salvo no banco de dados (ID: {report_id})")
+                    else:
+                        st.warning("⚠️ Não foi possível salvar no banco de dados.")
+                else:
+                    st.caption("💡 Inicie o PostgreSQL com `docker compose up -d` para salvar relatórios.")
 
 else:
     # Estado inicial - sem upload
     st.info("👆 Faça upload de um diagrama de arquitetura para começar a análise.")
+
+# --- 6. HISTÓRICO DE RELATÓRIOS ---
+st.divider()
+st.header("📚 Histórico de Relatórios")
+
+if DB_AVAILABLE:
+    stats = get_stats()
     
-    # Exemplos de uso
+    if stats and stats.get('total_reports', 0) > 0:
+        # Dashboard de estatísticas
+        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+        col_s1.metric("Total de Análises", stats.get('total_reports', 0))
+        col_s2.metric("Score Médio", f"{(stats.get('avg_risk_score') or 0):.0%}")
+        col_s3.metric("Componentes Analisados", stats.get('total_components_analyzed', 0))
+        col_s4.metric("Riscos Encontrados", stats.get('total_risks_found', 0))
+        
+        # Distribuição por nível de risco
+        st.markdown("**Distribuição por nível de risco:**")
+        risk_cols = st.columns(4)
+        risk_cols[0].markdown(f'🔴 CRITICAL: **{stats.get("critical_count", 0)}**')
+        risk_cols[1].markdown(f'🟠 HIGH: **{stats.get("high_count", 0)}**')
+        risk_cols[2].markdown(f'🟡 MEDIUM: **{stats.get("medium_count", 0)}**')
+        risk_cols[3].markdown(f'🟢 LOW: **{stats.get("low_count", 0)}**')
+        
+        st.divider()
+        
+        # Lista de relatórios
+        reports = list_reports(limit=20)
+        for report in reports:
+            created = report['created_at'].strftime('%d/%m/%Y %H:%M') if report.get('created_at') else ''
+            risk_lvl = report.get('risk_level', 'MEDIUM')
+            risk_emoji = {'LOW': '🟢', 'MEDIUM': '🟡', 'HIGH': '🟠', 'CRITICAL': '🔴'}.get(risk_lvl, '⚪')
+            
+            col_r1, col_r2, col_r3 = st.columns([4, 1, 1])
+            with col_r1:
+                st.markdown(
+                    f"{risk_emoji} **{report['filename']}** — "
+                    f"{report['total_components']} componentes, "
+                    f"{report['total_risks']} riscos — _{created}_"
+                )
+            with col_r2:
+                # Botão para ver detalhes
+                if st.button("📄 Ver", key=f"view_{report['id']}"):
+                    full_report = get_report(report['id'])
+                    if full_report:
+                        st.session_state[f"detail_{report['id']}"] = full_report
+            with col_r3:
+                if st.button("🗑️", key=f"del_{report['id']}"):
+                    if delete_report(report['id']):
+                        st.rerun()
+            
+            # Exibe detalhes se clicado
+            detail_key = f"detail_{report['id']}"
+            if detail_key in st.session_state:
+                with st.expander(f"Detalhes — {report['filename']}", expanded=True):
+                    full = st.session_state[detail_key]
+                    st.json({
+                        "summary": {
+                            "risk_level": full['risk_level'],
+                            "risk_score": full['risk_score'],
+                            "total_components": full['total_components'],
+                            "total_risks": full['total_risks'],
+                            "security_controls": full['security_controls'],
+                        },
+                        "detections": full['detections'],
+                        "stride_analyses": full['stride_analyses'],
+                    })
+                    if st.button("Fechar", key=f"close_{report['id']}"):
+                        del st.session_state[detail_key]
+                        st.rerun()
+    else:
+        st.info("Nenhum relatório salvo ainda. Analise um diagrama para começar!")
+else:
+    st.caption("💡 Para ver o histórico, inicie o PostgreSQL: `docker compose up -d`")
+
+st.divider()
+
+# --- 7. DICAS DE USO ---
+if uploaded_file is None:
     with st.expander("💡 Dicas de Uso"):
         st.markdown("""
         ### Como obter melhores resultados:
