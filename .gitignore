@@ -1,25 +1,43 @@
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
+*$py.class
 *.egg-info/
 dist/
 build/
-*.egg
+.eggs/
 
-# Virtual environments
+# Environment
+.env
+.venv/
 venv/
-.env/
 env/
 
 # IDE
-.vscode/
+.vscode/settings.json
 .idea/
 
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Model weights (large files)
+models/*.pt
+!models/.gitkeep
+
+# Data
+data/dataset/
+data/kaggle_cache/
+kaggle_dataset_cache/
+dataset/
+dataset_final/
+*.zip
+
 # OS
-Thumbs.db
 .DS_Store
+Thumbs.db
 
 # YOLO runs
 runs/
-

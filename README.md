@@ -1,173 +1,137 @@
-# 🛡️ Cloud Architecture Security Analyzer - MVP
+# 🛡️ Cloud Architecture Security Analyzer
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![YOLO v11](https://img.shields.io/badge/YOLO-v11-green.svg)](https://github.com/ultralytics/ultralytics)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)](https://streamlit.io/)
+Análise automatizada de segurança de arquiteturas cloud usando **YOLO** para detecção de componentes e **STRIDE** para modelagem de ameaças.
 
-## 📋 Sobre o Projeto
+## 📋 Visão Geral
 
-MVP desenvolvido para a **Pós-Graduação FIAP** que utiliza **detecção visual com Deep Learning** para analisar diagramas de arquitetura de software (AWS/Azure) e identificar vulnerabilidades de segurança usando a metodologia **STRIDE**.
+Este projeto detecta componentes em diagramas de arquitetura cloud (AWS, Azure, GCP) e aplica a metodologia STRIDE para identificar ameaças e sugerir mitigações.
 
-### Funcionalidades
-
-- 🔍 **Detecção Visual**: Identifica componentes de infraestrutura cloud em diagramas
-- 🛡️ **Análise STRIDE**: Gera relatório de vulnerabilidades e mitigações
-- 📊 **Score de Risco**: Classifica o nível de risco da arquitetura
-- 📥 **Exportação**: Relatórios em JSON para documentação
-
-## 🏗️ Arquitetura
+## 🏗️ Estrutura do Projeto
 
 ```
 cloud-arch-security-mvp/
-├── dataset/                    # Dataset YOLO com anotações
-│   ├── data.yaml              # Configuração das classes
-│   ├── train/images/labels/   # Conjunto de treino
-│   ├── valid/images/labels/   # Conjunto de validação
-│   └── test/images/labels/    # Conjunto de teste
-├── diagram/                    # Diagramas customizados para anotação
-│   ├── imagem01.png           # Diagrama customizado
-│   └── imagem01.json          # Anotações LabelMe (JSON)
-├── kaggle_dataset_cache/       # Cache do dataset Kaggle original
-│   └── kaggle_dataset_cache.zip
-├── models/
-│   ├── best.pt                # Modelo YOLO treinado
-│   └── yolo11n.pt             # Modelo base YOLO
-├── src/
-│   ├── app.py                 # Aplicação Streamlit
-│   ├── stride_engine.py       # Motor de análise STRIDE
-│   ├── train_model.py         # Script de treino local
-│   ├── train_colab.ipynb      # Notebook para Google Colab
-│   └── analyze_dataset.py     # Análise do dataset (evolução)
-├── prepare_dataset.py          # Prepara dataset: Kaggle + anotações customizadas
-└── requirements.txt           # Dependências Python
+├── config/                     # Configurações centralizadas
+│   └── settings.py
+├── data/                       # Dados (ignorado no git)
+│   └── diagrams/
+├── models/                     # Pesos do modelo YOLO
+│   └── best.pt
+├── scripts/                    # Scripts utilitários
+│   └── prepare_dataset.py
+├── sql/                        # Scripts SQL
+│   └── init_db.sql
+├── src/                        # Código fonte
+│   ├── app.py                  # Interface Streamlit
+│   ├── database.py             # Camada de persistência
+│   ├── detection/              # Módulo de detecção YOLO
+│   │   └── detector.py
+│   ├── stride/                 # Módulo de análise STRIDE
+│   │   ├── categories.py
+│   │   ├── engine.py
+│   │   └── knowledge_base.py
+│   └── training/               # Módulo de treinamento
+│       └── trainer.py
+├── tests/                      # Testes automatizados
+│   ├── test_detector.py
+│   ├── test_knowledge_base.py
+│   └── test_stride_engine.py
+├── docker-compose.yml
+├── Makefile
+├── pyproject.toml
+└── README.md
 ```
 
-## 🚀 Instalação
+## 🚀 Quick Start
 
-### 1. Clone o repositório
+### 1. Instalação
 
 ```bash
-git clone https://github.com/seu-usuario/cloud-arch-security-mvp.git
+# Clonar o repositório
+git clone <repo-url>
 cd cloud-arch-security-mvp
+
+# Instalar dependências
+pip install -e .
+
+# Para desenvolvimento
+pip install -e ".[dev]"
 ```
 
-### 2. Crie um ambiente virtual
+### 2. Configuração
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate     # Windows
+# Copiar configurações de ambiente
+cp .env.example .env
+
+# Editar conforme necessário
+nano .env
 ```
 
-### 3. Instale as dependências
+### 3. Modelo
+
+Coloque o arquivo `best.pt` (modelo YOLO treinado) na pasta `models/`.
+
+### 4. Banco de Dados (opcional)
 
 ```bash
-pip install -r requirements.txt
+# Subir PostgreSQL com Docker
+make db-up
+
+# Executar script de inicialização
+psql -h localhost -U postgres -d security_analyzer -f sql/init_db.sql
 ```
 
-### 4. Execute a aplicação
+### 5. Executar
 
 ```bash
-cd src
-streamlit run app.py
+# Via Makefile
+make run
+
+# Ou diretamente
+streamlit run src/app.py
 ```
 
-## 🎓 Treinamento do Modelo
-
-### Opção 1: Google Colab (Recomendado)
-
-1. **Prepare o dataset localmente:**
-   ```bash
-   python prepare_dataset.py
-   ```
-   Isso combina o dataset Kaggle + suas anotações customizadas (pasta `diagram/`)
-
-2. **Faça upload** do arquivo `dataset_ready.zip` para o Google Drive em:
-   ```
-   My Drive/colab/cloud-arch-security-mvp/kaggle_dataset_cache/dataset_ready.zip
-   ```
-
-3. **Abra** o notebook `src/train_colab.ipynb` no Google Colab
-
-4. **Execute** todas as células - o treinamento suporta **checkpoint/resume**
-
-5. **Baixe** o modelo treinado de `weights_backup/best_kaggle.pt` e copie para `models/best.pt`
-
-### Opção 2: Treino Local (GPU necessária)
+## 🧪 Testes
 
 ```bash
-cd src
-python train_model.py
+# Executar testes
+make test
+
+# Com cobertura
+make test-cov
+
+# Linting
+make lint
+
+# Formatação
+make format
 ```
 
-**Requisitos GPU Local:**
-- NVIDIA GPU com CUDA 11.8+
-- Mínimo 4GB VRAM (recomendado 8GB+)
-- NVIDIA RTX 2060 ou superior
+## 🔧 Treinamento
 
-## 📊 Categorias Detectadas (14 Categorias STRIDE + Other)
+```bash
+# Preparar dataset
+python scripts/prepare_dataset.py
 
-O modelo foi treinado para detectar **15 categorias** de componentes cloud (AWS/Azure/GCP):
+# Treinar modelo
+python -m src.training.trainer --data path/to/data.yaml --epochs 30
+```
 
-| Categoria | Componentes Exemplo |
-|-----------|---------------------|
-| **compute** | EC2, Lambda, EKS, Fargate, VM, SEI, SIP |
-| **database** | RDS, DynamoDB, Aurora, Redis, Cosmos DB |
-| **storage** | S3, EBS, EFS, Glacier, Blob Storage |
-| **network** | VPC, Load Balancer, CloudFront, Route 53 |
-| **security** | IAM, WAF, KMS, Cognito, GuardDuty |
-| **api_gateway** | API Gateway, AppSync, Apigee |
-| **messaging** | SQS, SNS, SES, EventBridge, Kinesis |
-| **monitoring** | CloudWatch, CloudTrail, X-Ray |
-| **identity** | User, Client, Active Directory |
-| **ml_ai** | SageMaker, Rekognition, Vertex AI |
-| **devops** | CodePipeline, ECR, CloudFormation |
-| **serverless** | Lambda, Step Functions, Cloud Functions |
-| **analytics** | Athena, Glue, BigQuery, Redshift |
-| **other** | Componentes não mapeados |
+## 📊 Categorias Detectadas
 
-## 🔐 Metodologia STRIDE
+| Categoria | Exemplos |
+|-----------|----------|
+| Compute | EC2, Lambda, EKS, Fargate |
+| Database | RDS, DynamoDB, Aurora, Redis |
+| Storage | S3, EBS, EFS, Glacier |
+| Network | VPC, CloudFront, Route 53 |
+| Security | IAM, WAF, KMS, Cognito |
+| API Gateway | API Gateway, AppSync |
+| Messaging | SQS, SNS, EventBridge |
+| Monitoring | CloudWatch, CloudTrail |
+| ML/AI | SageMaker, Rekognition |
+| DevOps | CodePipeline, CloudFormation |
 
-O sistema analisa cada componente detectado usando a metodologia STRIDE:
+##  Licença
 
-- **S**poofing: Falsificação de identidade
-- **T**ampering: Adulteração de dados
-- **R**epudiation: Repúdio de ações
-- **I**nformation Disclosure: Vazamento de informações
-- **D**enial of Service: Negação de serviço
-- **E**levation of Privilege: Escalação de privilégios
-
-## 📈 Métricas do Modelo
-
-Após o treinamento otimizado:
-
-| Métrica | Valor |
-|---------|-------|
-| mAP50 | ~0.75+ |
-| mAP50-95 | ~0.55+ |
-| Precisão | ~0.70+ |
-| Recall | ~0.65+ |
-
-## 🛠️ Configurações
-
-### Threshold de Confiança
-
-Ajuste no sidebar da aplicação:
-- **Padrão**: 0.35 (recomendado para diagramas complexos)
-- **Alto**: 0.50+ (menos falsos positivos, pode perder detecções)
-- **Baixo**: 0.20 (mais detecções, mais falsos positivos)
-
-## 📝 Licença
-
-Este projeto é desenvolvido para fins acadêmicos como parte da Pós-Graduação FIAP.
-
-## 👥 Contribuidores
-
-- Desenvolvido como MVP para Pós-Graduação FIAP - Módulo 05
-
-## 📚 Referências
-
-- [STRIDE Threat Modeling](https://docs.microsoft.com/en-us/azure/security/develop/threat-modeling-tool-threats)
-- [Ultralytics YOLOv11](https://github.com/ultralytics/ultralytics)
-- [AWS Architecture Icons](https://aws.amazon.com/architecture/icons/)
-- [Azure Architecture Icons](https://docs.microsoft.com/en-us/azure/architecture/icons/)
+MIT

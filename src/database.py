@@ -1,175 +1,118 @@
-"""
-Database Layer - Persistência de Relatórios STRIDE
-===================================================
+"""Camada de persistência para histórico de análises."""
 
-Módulo responsável pela conexão com PostgreSQL e operações CRUD
-para relatórios de análise de segurança.
-
-Autor: MVP Pós-Graduação FIAP
-"""
-
-import json
-import os
+import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import datetime
-from typing import Dict, List, Optional, Any
 
 import psycopg2
-from psycopg2.extras import RealDictCursor, Json
+from psycopg2.extras import RealDictCursor, RealDictRow
+
+from config.settings import DatabaseConfig
+
+logger = logging.getLogger(__name__)
 
 
-# Configuração via variáveis de ambiente (com defaults para dev local)
-DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", "5432")),
-    "dbname": os.getenv("DB_NAME", "stride_reports"),
-    "user": os.getenv("DB_USER", "stride"),
-    "password": os.getenv("DB_PASSWORD", "stride_mvp_2026"),
-}
+class AnalysisRepository:
+    """Repositório para operações de banco de dados de análises.
 
-
-def get_connection():
-    """Cria e retorna uma conexão com o PostgreSQL."""
-    return psycopg2.connect(**DB_CONFIG)
-
-
-def is_db_available() -> bool:
-    """Verifica se o banco de dados está acessível."""
-    try:
-        conn = get_connection()
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-
-def save_report(
-    filename: str,
-    risk_level: str,
-    risk_score: float,
-    total_components: int,
-    total_risks: int,
-    security_controls: List[str],
-    detections: List[Dict],
-    stride_analyses: List[Dict],
-) -> Optional[int]:
+    Usa context manager para gerenciamento seguro de conexão.
     """
-    Persiste um relatório STRIDE no banco de dados.
 
-    Returns:
-        ID do relatório inserido ou None em caso de erro.
-    """
-    sql = """
-        INSERT INTO reports (
-            filename, risk_level, risk_score,
-            total_components, total_risks, security_controls,
-            detections, stride_analyses
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s
-        )
-        RETURNING id;
-    """
-    try:
-        conn = get_connection()
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (
-                    filename,
-                    risk_level,
-                    risk_score,
-                    total_components,
-                    total_risks,
-                    Json(security_controls),
-                    Json(detections),
-                    Json(stride_analyses),
-                ))
-                report_id = cur.fetchone()[0]
-        conn.close()
-        return report_id
-    except Exception as e:
-        print(f"[DB] Erro ao salvar relatório: {e}")
-        return None
+    def __init__(self, config: DatabaseConfig | None = None) -> None:
+        self._config = config or DatabaseConfig()
 
+    @contextmanager
+    def _get_cursor(self) -> Generator:
+        """Context manager para cursor do banco de dados."""
+        conn = None
+        try:
+            conn = psycopg2.connect(self._config.url)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            yield cursor
+            conn.commit()
+        except psycopg2.Error as exc:
+            if conn:
+                conn.rollback()
+            logger.error("Erro no banco de dados: %s", exc)
+            raise
+        finally:
+            if conn:
+                conn.close()
 
-def list_reports(limit: int = 50) -> List[Dict[str, Any]]:
-    """Retorna os relatórios mais recentes."""
-    sql = """
-        SELECT id, created_at, filename, risk_level, risk_score,
-               total_components, total_risks, security_controls
-        FROM reports
-        ORDER BY created_at DESC
-        LIMIT %s;
-    """
-    try:
-        conn = get_connection()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(sql, (limit,))
-            rows = cur.fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
-    except Exception as e:
-        print(f"[DB] Erro ao listar relatórios: {e}")
-        return []
+    def save_analysis(
+        self,
+        image_name: str,
+        total_components: int,
+        risk_score: float,
+        risk_level: str,
+        components_json: str,
+    ) -> int | None:
+        """Salva resultado de análise no banco.
 
+        Returns:
+            ID do registro inserido ou None em caso de falha.
+        """
+        query = """
+            INSERT INTO analysis_history
+                (image_name, total_components, risk_score, risk_level, components, created_at)
+            VALUES
+                (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """
+        try:
+            with self._get_cursor() as cursor:
+                cursor.execute(
+                    query,
+                    (image_name, total_components, risk_score, risk_level, components_json, datetime.utcnow()),
+                )
+                row = cursor.fetchone()
+                record_id = row["id"] if row else None
+                logger.info("Análise salva com ID=%s", record_id)
+                return record_id
+        except Exception:
+            logger.exception("Falha ao salvar análise")
+            return None
 
-def get_report(report_id: int) -> Optional[Dict[str, Any]]:
-    """Retorna um relatório completo pelo ID."""
-    sql = """
-        SELECT id, created_at, filename, risk_level, risk_score,
-               total_components, total_risks, security_controls,
-               detections, stride_analyses
-        FROM reports
-        WHERE id = %s;
-    """
-    try:
-        conn = get_connection()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(sql, (report_id,))
-            row = cur.fetchone()
-        conn.close()
-        return dict(row) if row else None
-    except Exception as e:
-        print(f"[DB] Erro ao buscar relatório: {e}")
-        return None
+    def get_history(self, limit: int = 20) -> list[RealDictRow]:
+        """Recupera histórico de análises recentes."""
+        query = """
+            SELECT id, image_name, total_components, risk_score, risk_level, created_at
+            FROM analysis_history
+            ORDER BY created_at DESC
+            LIMIT %s
+        """
+        try:
+            with self._get_cursor() as cursor:
+                cursor.execute(query, (limit,))
+                return cursor.fetchall()
+        except Exception:
+            logger.exception("Falha ao buscar histórico")
+            return []
 
+    def delete_analysis(self, record_id: int) -> bool:
+        """Remove um registro de análise pelo ID.
 
-def delete_report(report_id: int) -> bool:
-    """Remove um relatório pelo ID."""
-    sql = "DELETE FROM reports WHERE id = %s;"
-    try:
-        conn = get_connection()
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (report_id,))
-                deleted = cur.rowcount > 0
-        conn.close()
-        return deleted
-    except Exception as e:
-        print(f"[DB] Erro ao deletar relatório: {e}")
-        return False
+        Returns:
+            True se o registro foi removido, False caso contrário.
+        """
+        query = "DELETE FROM analysis_history WHERE id = %s"
+        try:
+            with self._get_cursor() as cursor:
+                cursor.execute(query, (record_id,))
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    logger.info("Análise ID=%s removida", record_id)
+                return deleted
+        except Exception:
+            logger.exception("Falha ao remover análise ID=%s", record_id)
+            return False
 
-
-def get_stats() -> Dict[str, Any]:
-    """Retorna estatísticas agregadas dos relatórios."""
-    sql = """
-        SELECT
-            COUNT(*)                          AS total_reports,
-            ROUND(AVG(risk_score)::numeric, 2) AS avg_risk_score,
-            MAX(risk_score)                    AS max_risk_score,
-            SUM(total_components)              AS total_components_analyzed,
-            SUM(total_risks)                   AS total_risks_found,
-            COUNT(CASE WHEN risk_level = 'CRITICAL' THEN 1 END) AS critical_count,
-            COUNT(CASE WHEN risk_level = 'HIGH'     THEN 1 END) AS high_count,
-            COUNT(CASE WHEN risk_level = 'MEDIUM'   THEN 1 END) AS medium_count,
-            COUNT(CASE WHEN risk_level = 'LOW'      THEN 1 END) AS low_count
-        FROM reports;
-    """
-    try:
-        conn = get_connection()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(sql)
-            row = cur.fetchone()
-        conn.close()
-        return dict(row) if row else {}
-    except Exception as e:
-        print(f"[DB] Erro ao buscar estatísticas: {e}")
-        return {}
+    def is_available(self) -> bool:
+        """Verifica se o banco está acessível."""
+        try:
+            with self._get_cursor() as cursor:
+                cursor.execute("SELECT 1")
+                return True
+        except Exception:
+            return False

@@ -1,421 +1,327 @@
-"""
-Cloud Architecture Security Analyzer - MVP
-===========================================
+"""Interface Streamlit para análise de segurança de arquiteturas cloud."""
 
-Aplicação Streamlit para análise visual de diagramas de arquitetura cloud
-usando detecção de objetos (YOLO) e análise STRIDE para vulnerabilidades.
-
-Autor: MVP Pós-Graduação FIAP
-"""
+import json
+import logging
+import sys
+from pathlib import Path
 
 import streamlit as st
-from ultralytics import YOLO
-from stride_engine import StrideEngine
 from PIL import Image
-import os
-import json
-from datetime import datetime
 
-# Database (opcional - funciona sem Docker se BD não estiver disponível)
-try:
-    from database import save_report, list_reports, get_report, delete_report, get_stats, is_db_available
-    DB_AVAILABLE = is_db_available()
-except Exception:
-    DB_AVAILABLE = False
+# Garante que o root do projeto está no path
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-# --- 1. CONFIGURAÇÃO DA PÁGINA ---
+from config.settings import get_config  # noqa: E402
+from src.database import AnalysisRepository  # noqa: E402
+from src.detection.detector import ArchitectureDetector, DetectionResult  # noqa: E402
+from src.stride.engine import StrideEngine  # noqa: E402
+
+# ─── Logging ──────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# ─── Page Config ──────────────────────────────────────────────
 st.set_page_config(
-    page_title="MVP Security Audit",
+    page_title="Cloud Security Analyzer",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded"
 )
 
-# CSS customizado para melhor visualização
-st.markdown("""
-<style>
-    .risk-critical { background-color: #ff4444; color: white; padding: 3px 8px; border-radius: 4px; }
-    .risk-high { background-color: #ff8800; color: white; padding: 3px 8px; border-radius: 4px; }
-    .risk-medium { background-color: #ffcc00; color: black; padding: 3px 8px; border-radius: 4px; }
-    .risk-low { background-color: #44aa44; color: white; padding: 3px 8px; border-radius: 4px; }
-    .component-tag { background-color: #0066cc; color: white; padding: 2px 6px; border-radius: 3px; margin: 2px; display: inline-block; }
-</style>
-""", unsafe_allow_html=True)
+# ─── Constants ────────────────────────────────────────────────
+SUPPORTED_FORMATS = ["png", "jpg", "jpeg", "webp"]
 
-st.title("🛡️ Cloud Architecture Security Analyzer")
-st.markdown("""
-**MVP de Pós-Graduação FIAP** | Detecção Visual + Análise STRIDE  
-Faça upload de um diagrama de arquitetura AWS/Azure para identificar componentes e vulnerabilidades automaticamente.
-""")
+CATEGORY_EXAMPLES = {
+    "Compute": "EC2, Lambda, EKS, Fargate, VM",
+    "Database": "RDS, DynamoDB, Aurora, Redis, Cosmos DB",
+    "Storage": "S3, EBS, EFS, Glacier, Blob Storage",
+    "Network": "VPC, Load Balancer, CloudFront, Route 53",
+    "Security": "IAM, WAF, KMS, Cognito, GuardDuty",
+    "API Gateway": "API Gateway, AppSync, Apigee",
+    "Messaging": "SQS, SNS, SES, EventBridge, Kinesis",
+    "Monitoring": "CloudWatch, CloudTrail, X-Ray",
+    "Identity": "User, Client, Active Directory",
+    "ML/AI": "SageMaker, Rekognition, Vertex AI",
+    "DevOps": "CodePipeline, ECR, CloudFormation",
+    "Serverless": "Lambda, Step Functions, Cloud Functions",
+    "Analytics": "Athena, Glue, BigQuery, Redshift",
+    "Other": "Componentes não mapeados",
+}
 
-# --- 2. SIDEBAR COM CONFIGURAÇÕES ---
-with st.sidebar:
-    st.header("⚙️ Configurações")
-    
-    # Configurações do modelo
-    confidence_threshold = st.slider(
-        "Threshold de Confiança", 
-        min_value=0.1, 
-        max_value=0.9, 
-        value=0.35,  # Valor mais baixo para não perder detecções
-        step=0.05,
-        help="Componentes com confiança abaixo deste valor serão ignorados"
-    )
-    
-    iou_threshold = st.slider(
-        "Threshold IoU (NMS)", 
-        min_value=0.1, 
-        max_value=0.9, 
-        value=0.45,
-        step=0.05,
-        help="Controla a supressão de detecções duplicadas"
-    )
-    
-    st.divider()
-    
-    # Informações do modelo
-    st.header("ℹ️ Sobre o Modelo")
-    st.info("""
-    **Modelo:** YOLOv8n (Fine-tuned)  
-    **Dataset:** AWS/Azure System Diagrams  
-    **Classes:** Categorias de componentes cloud  
-    **Metodologia:** STRIDE Threat Modeling
-    """)
 
-# --- 3. CARREGAMENTO DO MODELO ---
-pasta_atual = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(pasta_atual, "..", "models", "best.pt")
-
+# ─── Resource Loading (cached) ───────────────────────────────
 @st.cache_resource
-def load_resources():
-    """Carrega modelo YOLO e motor STRIDE com cache."""
-    caminho_final = os.path.normpath(MODEL_PATH)
-    
-    if not os.path.exists(caminho_final):
-        return None, None, f"Modelo não encontrado em: {caminho_final}"
-    
+def _load_resources():
+    """Carrega detector e engine STRIDE com cache do Streamlit."""
+    config = get_config()
     try:
-        model_loaded = YOLO(caminho_final)
-        engine_loaded = StrideEngine()
-        return model_loaded, engine_loaded, None
-    except Exception as e:
-        return None, None, str(e)
+        detector = ArchitectureDetector(
+            model_path=config.model.path,
+            confidence=config.model.confidence_threshold,
+            iou_threshold=config.model.iou_threshold,
+        )
+        detector._ensure_model_loaded()
+        engine = StrideEngine()
+        return detector, engine, None
+    except FileNotFoundError as exc:
+        return None, None, str(exc)
+    except Exception as exc:
+        logger.exception("Falha ao carregar recursos")
+        return None, None, f"Erro inesperado: {exc}"
 
-model, engine, load_error = load_resources()
 
-if load_error:
-    st.error(f"⚠️ ERRO ao carregar recursos: {load_error}")
-    st.warning("""
-    **Verifique se:**
-    1. O arquivo `best.pt` existe na pasta `models/`
-    2. O modelo foi treinado corretamente no Colab
-    3. O arquivo foi copiado do Google Drive para o projeto local
-    """)
-    st.stop()
+def _render_sidebar() -> float:
+    """Renderiza a barra lateral e retorna o threshold configurado."""
+    with st.sidebar:
+        st.title("🛡️ Cloud Security Analyzer")
+        st.caption("Análise STRIDE automatizada para arquiteturas cloud")
+        st.divider()
 
-# --- 4. INTERFACE DE UPLOAD ---
-st.header("📤 Upload do Diagrama")
+        threshold = st.slider(
+            "Confiança mínima",
+            min_value=0.1,
+            max_value=0.9,
+            value=0.25,
+            step=0.05,
+            help="Threshold de confiança para detecção de componentes.",
+        )
 
-uploaded_file = st.file_uploader(
-    "Arraste seu diagrama de arquitetura aqui",
-    type=['png', 'jpg', 'jpeg', 'webp'],
-    help="Suporta imagens PNG, JPG e WebP"
-)
+        # Histórico
+        st.divider()
+        st.header("📜 Histórico")
+        try:
+            repo = AnalysisRepository()
+            if repo.is_available():
+                history = repo.get_history(limit=10)
+                if history:
+                    for record in history:
+                        severity_icon = {
+                            "CRITICAL": "🔴",
+                            "HIGH": "🟠",
+                            "MEDIUM": "🟡",
+                            "LOW": "🟢",
+                        }.get(record["risk_level"], "⚪")
+                        col_info, col_del = st.columns([5, 1])
+                        with col_info:
+                            st.markdown(
+                                f"{severity_icon} **{record['image_name']}** — "
+                                f"Score: {record['risk_score']} ({record['risk_level']})"
+                            )
+                        with col_del:
+                            if st.button(
+                                "🗑️",
+                                key=f"del_{record['id']}",
+                                help="Remover do histórico",
+                            ):
+                                repo.delete_analysis(record["id"])
+                                st.rerun()
+                else:
+                    st.caption("Nenhuma análise registrada.")
+            else:
+                st.caption("Banco de dados indisponível.")
+        except Exception:
+            st.caption("Banco de dados indisponível.")
 
-# --- 5. PROCESSAMENTO E ANÁLISE ---
-if uploaded_file is not None and model is not None:
+        st.divider()
+        st.header("ℹ\uFE0F Sobre")  # noqa: RUF001
+        st.info(
+            "**Modelo:** YOLO v8n (Fine-tuned)\n\n"
+            "**Dataset:** AWS/Azure/GCP Diagrams\n\n"
+            "**Metodologia:** STRIDE Threat Modeling"
+        )
+
+    return threshold
+
+
+def _get_severity_icon(severity: str) -> str:
+    """Retorna emoji correspondente ao nível de severidade."""
+    return {
+        "CRITICAL": "🔴",
+        "HIGH": "🟠",
+        "MEDIUM": "🟡",
+        "LOW": "🟢",
+    }.get(severity, "⚪")
+
+
+def _render_results(detection: DetectionResult, analysis: dict) -> None:
+    """Renderiza resultados da análise na interface."""
+    # Métricas resumo
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("Componentes", analysis["total_components"])
+    col_b.metric("Score de Risco", f"{analysis['risk_score']:.1f}")
+    col_c.metric(
+        "Nível de Risco",
+        f"{_get_severity_icon(analysis['risk_level'])} {analysis['risk_level']}",
+    )
+
+    st.divider()
+
+    # Detalhes por componente
+    st.subheader("🔍 Análise STRIDE por Componente")
+    for comp in analysis["components"]:
+        max_sev = _get_max_severity_badge(comp["risks"])
+        with st.expander(f"{max_sev} **{comp['component']}** — {comp['category']} | STRIDE: {comp['stride_summary']}"):
+            st.markdown(f"**Tipo de Elemento:** {comp['element_type']}")
+            st.markdown(f"**Descrição:** {comp['description']}")
+            st.divider()
+
+            for risk in comp["risks"]:
+                icon = _get_severity_icon(risk["severity"])
+                st.markdown(
+                    f"#### {icon} {risk['threat']} ({risk['severity']})\n\n"
+                    f"**Detalhe:** {risk['detail']}\n\n"
+                    f"**Mitigação:** {risk['mitigation']}\n\n"
+                    f"---"
+                )
+
+    # Componentes não analisados
+    if analysis.get("failed"):
+        st.warning(f"⚠️ {len(analysis['failed'])} componente(s) não analisados: {', '.join(analysis['failed'])}")
+
+
+def _get_max_severity_badge(risks: list) -> str:
+    """Retorna o badge do maior severity entre os riscos."""
+    severity_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+    if not risks:
+        return "⚪"
+    max_risk = max(risks, key=lambda r: severity_order.get(r.get("severity", "LOW"), 0))
+    return _get_severity_icon(max_risk.get("severity", "LOW"))
+
+
+def _render_detection_details(detection: DetectionResult) -> None:
+    """Renderiza detalhes das detecções em uma tabela."""
+    if detection.count == 0:
+        return
+
+    st.subheader("📊 Detecções do Modelo")
+    data = []
+    for det in sorted(detection.detections, key=lambda d: d.confidence, reverse=True):
+        data.append(
+            {
+                "Componente": det.class_name,
+                "Confiança": f"{det.confidence:.1%}",
+                "BBox": f"({int(det.bbox[0])}, {int(det.bbox[1])}) → ({int(det.bbox[2])}, {int(det.bbox[3])})",
+            }
+        )
+    st.table(data)
+
+
+def _render_tips() -> None:
+    """Renderiza dicas de uso quando não há upload."""
+    st.info("👆 Faça upload de um diagrama de arquitetura cloud para iniciar a análise.")
+
+    with st.expander("💡 Dicas de Uso", expanded=True):
+        st.markdown(
+            "### Como obter melhores resultados\n\n"
+            "1. Use diagramas com **ícones oficiais** AWS/Azure/GCP\n"
+            "2. Resolução mínima recomendada: **800x600** pixels\n"
+            "3. Evite diagramas muito complexos (>30 componentes)\n"
+            "4. Ajuste o **threshold** na barra lateral se componentes não forem detectados\n"
+            "5. Formatos suportados: **PNG, JPG, JPEG, WebP**\n\n"
+            "### Categorias detectadas"
+        )
+        table_md = "| Categoria | Exemplos |\n|-----------|----------|\n"
+        for cat, examples in CATEGORY_EXAMPLES.items():
+            table_md += f"| {cat} | {examples} |\n"
+        st.markdown(table_md)
+
+
+def _save_to_database(uploaded_file_name: str, analysis: dict) -> None:
+    """Tenta salvar a análise no banco de dados."""
+    try:
+        repo = AnalysisRepository()
+        if repo.is_available():
+            repo.save_analysis(
+                image_name=uploaded_file_name,
+                total_components=analysis["total_components"],
+                risk_score=analysis["risk_score"],
+                risk_level=analysis["risk_level"],
+                components_json=json.dumps(analysis["components"], ensure_ascii=False),
+            )
+            st.toast("✅ Análise salva no histórico")
+        else:
+            logger.debug("Banco indisponível — análise não persistida")
+    except Exception:
+        logger.debug("Falha ao salvar no banco — continuando sem persistência")
+
+
+# ─── Main ────────────────────────────────────────────────────
+def main() -> None:
+    """Entry-point da aplicação Streamlit."""
+    threshold = _render_sidebar()
+
+    detector, engine, load_error = _load_resources()
+
+    if load_error:
+        st.error(f"⚠️ Erro ao carregar modelo: {load_error}")
+        st.warning(
+            "Verifique se:\n"
+            "1. O arquivo `best.pt` existe em `models/`\n"
+            "2. O modelo foi treinado corretamente\n"
+            "3. O pacote `ultralytics` está instalado"
+        )
+        st.stop()
+
+    st.header("📤 Upload do Diagrama de Arquitetura")
+    uploaded_file = st.file_uploader(
+        "Arraste seu diagrama de arquitetura aqui",
+        type=SUPPORTED_FORMATS,
+        help="Suporta imagens PNG, JPG e WebP de diagramas AWS, Azure e GCP",
+    )
+
+    if uploaded_file is None:
+        _render_tips()
+        return
+
     image = Image.open(uploaded_file)
-    
-    # Layout em duas colunas
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("📋 1. Diagrama Original")
+    col_left, col_right = st.columns([1, 1])
+
+    with col_left:
+        st.subheader("📋 Diagrama Original")
         st.image(image, use_container_width=True)
 
-    # Botão de análise
     if st.button("🔍 Analisar Arquitetura", type="primary", use_container_width=True):
-        
-        with st.spinner('🤖 Detectando componentes com IA...'):
-            # Executa inferência com configurações do sidebar
-            results = model(
-                image, 
-                conf=confidence_threshold, 
-                iou=iou_threshold,
-                verbose=False
-            )
-            
-            # Imagem com bounding boxes
-            res_plotted = results[0].plot()
-            
-            # Extrai componentes detectados com confiança
-            detections = []
-            componentes_unicos = set()
-            
-            for r in results:
-                for box in r.boxes:
-                    cls_id = int(box.cls[0])
-                    conf = float(box.conf[0])
-                    nome_classe = model.names[cls_id]
-                    componentes_unicos.add(nome_classe)
-                    detections.append({
-                        "class": nome_classe,
-                        "confidence": conf,
-                        "box": box.xyxy[0].tolist()
-                    })
-        
-        # Mostra resultados visuais
-        with col1:
-            st.subheader("🔎 2. Detecção Visual")
-            st.image(res_plotted, caption="Componentes Identificados", use_container_width=True)
-            
-            # Estatísticas da detecção
-            st.metric("Total de Detecções", len(detections))
-            st.metric("Componentes Únicos", len(componentes_unicos))
-        
-        # Análise STRIDE
-        with col2:
-            st.subheader("📊 3. Relatório de Segurança STRIDE")
-            
-            if not componentes_unicos:
-                st.warning("⚠️ Nenhum componente foi detectado. Tente:")
-                st.markdown("""
-                - Usar uma imagem de maior resolução
-                - Verificar se o diagrama contém ícones AWS/Azure padrão
-                - Reduzir o threshold de confiança no sidebar
-                """)
+        with st.spinner("🔄 Analisando diagrama... Isso pode levar alguns segundos."):
+            detector._confidence = threshold
+            detection = detector.detect(image)
+
+            if detection.count == 0:
+                st.warning(
+                    "❌ Nenhum componente detectado. Tente:\n"
+                    "- Reduzir o threshold de confiança\n"
+                    "- Usar um diagrama com ícones mais claros\n"
+                    "- Verificar a resolução da imagem"
+                )
+                return
+
+            analysis = engine.analyze_architecture(detection.component_names)
+
+        # Substitui imagem original pela anotada com bounding boxes
+        with col_left:
+            st.subheader("🔎 Componentes Detectados")
+            if detection.annotated_image is not None:
+                st.image(detection.annotated_image, use_container_width=True)
             else:
-                # Resumo dos componentes
-                st.success(f"✅ **{len(componentes_unicos)} componentes** identificados")
-                
-                # Tags visuais dos componentes
-                tags_html = " ".join([
-                    f'<span class="component-tag">{c}</span>' 
-                    for c in sorted(componentes_unicos)
-                ])
-                st.markdown(tags_html, unsafe_allow_html=True)
-                st.divider()
-                
-                # Análise completa da arquitetura
-                arch_analysis = engine.analyze_architecture(list(componentes_unicos))
-                
-                # Score de risco visual
-                risk_color_map = {
-                    'LOW': 'risk-low',
-                    'MEDIUM': 'risk-medium', 
-                    'HIGH': 'risk-high',
-                    'CRITICAL': 'risk-critical'
-                }
-                risk_class = risk_color_map.get(arch_analysis['risk_level'], 'risk-medium')
-                
-                col_score1, col_score2 = st.columns(2)
-                with col_score1:
-                    st.markdown(f"""
-                    <h3>Nível de Risco: <span class="{risk_class}">{arch_analysis['risk_level']}</span></h3>
-                    """, unsafe_allow_html=True)
-                with col_score2:
-                    st.metric("Score de Risco", f"{arch_analysis['risk_score']:.0%}")
-                
-                # Controles de segurança detectados
-                if arch_analysis['security_controls']:
-                    st.success(f"🛡️ **Controles de segurança detectados:** {', '.join(arch_analysis['security_controls'])}")
-                else:
-                    st.warning("⚠️ Nenhum controle de segurança (WAF, Firewall, etc.) foi detectado!")
-                
-                st.divider()
-                
-                # Análises detalhadas por componente
-                for analise in arch_analysis['analyses']:
-                    componente = analise.get('component', 'Desconhecido')
-                    element_type = analise.get('element_type', 'Element')
-                    stride_summary = analise.get('stride_summary', '')
-                    
-                    # Formato regra de ouro: Elemento (Tipo) → STRIDE: X, Y, Z
-                    expander_title = f"📌 {componente} ({element_type}) → STRIDE: {stride_summary}"
-                    
-                    with st.expander(expander_title, expanded=False):
-                        # Descrição
-                        if 'description' in analise:
-                            st.caption(analise['description'])
-                        
-                        # Notas positivas (controles de segurança)
-                        if 'note' in analise:
-                            st.info(analise['note'])
-                        
-                        # Riscos STRIDE
-                        riscos = analise.get('risks') or analise.get('stride') or []
-                        
-                        if riscos:
-                            for risco in riscos:
-                                # Extrai campos (suporta diferentes formatos)
-                                tipo = risco.get('type') or risco.get('threat') or "Risco"
-                                threat_name = risco.get('threat', tipo)
-                                detalhe = risco.get('detail') or risco.get('desc') or "Sem detalhes"
-                                mitigacao = risco.get('mitigation') or risco.get('fix') or "Verificar documentação"
-                                severidade = risco.get('severity', 'MEDIUM')
-                                
-                                severity_class = risk_color_map.get(severidade, 'risk-medium')
-                                
-                                st.markdown(f"""
-                                **🔴 {threat_name}** <span class="{severity_class}">{severidade}</span>
-                                
-                                _{detalhe}_
-                                
-                                🛡️ **Mitigação:** `{mitigacao}`
-                                """, unsafe_allow_html=True)
-                                st.divider()
-                        else:
-                            st.write("✅ Sem riscos críticos mapeados para este componente.")
-                
-                # Exportar relatório
-                st.divider()
-                st.subheader("📥 Exportar Relatório")
-                
-                report_data = {
-                    "summary": {
-                        "total_components": arch_analysis['total_components'],
-                        "risk_score": arch_analysis['risk_score'],
-                        "risk_level": arch_analysis['risk_level'],
-                        "total_risks": arch_analysis['total_risks'],
-                        "security_controls": arch_analysis['security_controls']
-                    },
-                    "detections": detections,
-                    "stride_analyses": arch_analysis['analyses']
-                }
-                
-                st.download_button(
-                    label="📄 Baixar Relatório JSON",
-                    data=json.dumps(report_data, indent=2, ensure_ascii=False),
-                    file_name="security_report.json",
-                    mime="application/json"
-                )
-                
-                # Persistir no banco de dados
-                if DB_AVAILABLE:
-                    report_id = save_report(
-                        filename=uploaded_file.name,
-                        risk_level=arch_analysis['risk_level'],
-                        risk_score=arch_analysis['risk_score'],
-                        total_components=arch_analysis['total_components'],
-                        total_risks=arch_analysis['total_risks'],
-                        security_controls=arch_analysis['security_controls'],
-                        detections=detections,
-                        stride_analyses=arch_analysis['analyses'],
-                    )
-                    if report_id:
-                        st.success(f"💾 Relatório salvo no banco de dados (ID: {report_id})")
-                    else:
-                        st.warning("⚠️ Não foi possível salvar no banco de dados.")
-                else:
-                    st.caption("💡 Inicie o PostgreSQL com `docker compose up -d` para salvar relatórios.")
+                st.image(image, use_container_width=True)
 
-else:
-    # Estado inicial - sem upload
-    st.info("👆 Faça upload de um diagrama de arquitetura para começar a análise.")
+        with col_right:
+            st.subheader("📊 Resultado da Análise")
+            _render_results(detection, analysis)
 
-# --- 6. HISTÓRICO DE RELATÓRIOS ---
-st.divider()
-st.header("📚 Histórico de Relatórios")
-
-if DB_AVAILABLE:
-    stats = get_stats()
-    
-    if stats and stats.get('total_reports', 0) > 0:
-        # Dashboard de estatísticas
-        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
-        col_s1.metric("Total de Análises", stats.get('total_reports', 0))
-        col_s2.metric("Score Médio", f"{(stats.get('avg_risk_score') or 0):.0%}")
-        col_s3.metric("Componentes Analisados", stats.get('total_components_analyzed', 0))
-        col_s4.metric("Riscos Encontrados", stats.get('total_risks_found', 0))
-        
-        # Distribuição por nível de risco
-        st.markdown("**Distribuição por nível de risco:**")
-        risk_cols = st.columns(4)
-        risk_cols[0].markdown(f'🔴 CRITICAL: **{stats.get("critical_count", 0)}**')
-        risk_cols[1].markdown(f'🟠 HIGH: **{stats.get("high_count", 0)}**')
-        risk_cols[2].markdown(f'🟡 MEDIUM: **{stats.get("medium_count", 0)}**')
-        risk_cols[3].markdown(f'🟢 LOW: **{stats.get("low_count", 0)}**')
-        
         st.divider()
-        
-        # Lista de relatórios
-        reports = list_reports(limit=20)
-        for report in reports:
-            created = report['created_at'].strftime('%d/%m/%Y %H:%M') if report.get('created_at') else ''
-            risk_lvl = report.get('risk_level', 'MEDIUM')
-            risk_emoji = {'LOW': '🟢', 'MEDIUM': '🟡', 'HIGH': '🟠', 'CRITICAL': '🔴'}.get(risk_lvl, '⚪')
-            
-            col_r1, col_r2, col_r3 = st.columns([4, 1, 1])
-            with col_r1:
-                st.markdown(
-                    f"{risk_emoji} **{report['filename']}** — "
-                    f"{report['total_components']} componentes, "
-                    f"{report['total_risks']} riscos — _{created}_"
-                )
-            with col_r2:
-                # Botão para ver detalhes
-                if st.button("📄 Ver", key=f"view_{report['id']}"):
-                    full_report = get_report(report['id'])
-                    if full_report:
-                        st.session_state[f"detail_{report['id']}"] = full_report
-            with col_r3:
-                if st.button("🗑️", key=f"del_{report['id']}"):
-                    if delete_report(report['id']):
-                        st.rerun()
-            
-            # Exibe detalhes se clicado
-            detail_key = f"detail_{report['id']}"
-            if detail_key in st.session_state:
-                with st.expander(f"Detalhes — {report['filename']}", expanded=True):
-                    full = st.session_state[detail_key]
-                    st.json({
-                        "summary": {
-                            "risk_level": full['risk_level'],
-                            "risk_score": full['risk_score'],
-                            "total_components": full['total_components'],
-                            "total_risks": full['total_risks'],
-                            "security_controls": full['security_controls'],
-                        },
-                        "detections": full['detections'],
-                        "stride_analyses": full['stride_analyses'],
-                    })
-                    if st.button("Fechar", key=f"close_{report['id']}"):
-                        del st.session_state[detail_key]
-                        st.rerun()
-    else:
-        st.info("Nenhum relatório salvo ainda. Analise um diagrama para começar!")
-else:
-    st.caption("💡 Para ver o histórico, inicie o PostgreSQL: `docker compose up -d`")
+        _render_detection_details(detection)
 
-st.divider()
+        # JSON exportável
+        with st.expander("📥 Exportar JSON"):
+            st.json(analysis)
 
-# --- 7. DICAS DE USO ---
-if uploaded_file is None:
-    with st.expander("💡 Dicas de Uso"):
-        st.markdown("""
-        ### Como obter melhores resultados:
-        
-        1. **Use diagramas com ícones oficiais** AWS/Azure
-        2. **Resolução mínima recomendada:** 800x600 pixels
-        3. **Evite diagramas muito complexos** - o modelo foi treinado em diagramas típicos
-        4. **Ajuste o threshold** se componentes não forem detectados
-        
-        ### O que o sistema detecta (14 categorias STRIDE):
-        
-        | Categoria | Exemplos |
-        |-----------|----------|
-        | Compute | EC2, Lambda, EKS, Fargate, VM, SEI, SIP |
-        | Database | RDS, DynamoDB, Aurora, Redis, Cosmos DB |
-        | Storage | S3, EBS, EFS, Glacier, Blob Storage |
-        | Network | VPC, Load Balancer, CloudFront, Route 53 |
-        | Security | IAM, WAF, KMS, Cognito, GuardDuty |
-        | API Gateway | API Gateway, AppSync, Apigee |
-        | Messaging | SQS, SNS, SES, EventBridge, Kinesis |
-        | Monitoring | CloudWatch, CloudTrail, X-Ray |
-        | Identity | User, Client, Active Directory |
-        | ML/AI | SageMaker, Rekognition, Vertex AI |
-        | DevOps | CodePipeline, ECR, CloudFormation |
-        | Serverless | Lambda, Step Functions, Cloud Functions |
-        | Analytics | Athena, Glue, BigQuery, Redshift |
-        | Other | Componentes não mapeados |
-        """)
+        # Salvar no banco
+        _save_to_database(uploaded_file.name, analysis)
+
+
+if __name__ == "__main__":
+    main()
