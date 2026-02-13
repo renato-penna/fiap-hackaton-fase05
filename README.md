@@ -17,6 +17,7 @@ cloud-arch-security-mvp/
 ├── models/                     # Pesos do modelo YOLO
 │   └── best.pt
 ├── scripts/                    # Scripts utilitários
+│   ├── analyze_dataset.py
 │   └── prepare_dataset.py
 ├── sql/                        # Scripts SQL
 │   └── init_db.sql
@@ -48,7 +49,7 @@ cloud-arch-security-mvp/
 ```bash
 # Clonar o repositório
 git clone <repo-url>
-cd cloud-arch-security-mvp
+cd fiap-hackaton-fase05
 
 # Instalar dependências
 pip install -e .
@@ -59,6 +60,9 @@ pip install -e ".[dev]"
 
 ### 2. Configuração
 
+<details>
+<summary><strong>🐧 Linux / macOS</strong></summary>
+
 ```bash
 # Copiar configurações de ambiente
 cp .env.example .env
@@ -67,11 +71,29 @@ cp .env.example .env
 nano .env
 ```
 
+</details>
+
+<details>
+<summary><strong>🪟 Windows (PowerShell)</strong></summary>
+
+```powershell
+# Copiar configurações de ambiente
+Copy-Item .env.example .env
+
+# Editar conforme necessário
+notepad .env
+```
+
+</details>
+
 ### 3. Modelo
 
 Coloque o arquivo `best.pt` (modelo YOLO treinado) na pasta `models/`.
 
 ### 4. Banco de Dados (opcional)
+
+<details>
+<summary><strong>🐧 Linux / macOS</strong></summary>
 
 ```bash
 # Subir PostgreSQL com Docker
@@ -81,7 +103,25 @@ make db-up
 psql -h localhost -U postgres -d security_analyzer -f sql/init_db.sql
 ```
 
+</details>
+
+<details>
+<summary><strong>🪟 Windows (PowerShell)</strong></summary>
+
+```powershell
+# Subir PostgreSQL com Docker
+docker compose up -d
+
+# Executar script de inicialização
+psql -h localhost -U postgres -d security_analyzer -f sql/init_db.sql
+```
+
+</details>
+
 ### 5. Executar
+
+<details>
+<summary><strong>🐧 Linux / macOS</strong></summary>
 
 ```bash
 # Via Makefile
@@ -91,7 +131,21 @@ make run
 streamlit run src/app.py
 ```
 
+</details>
+
+<details>
+<summary><strong>🪟 Windows (PowerShell)</strong></summary>
+
+```powershell
+streamlit run src/app.py
+```
+
+</details>
+
 ## 🧪 Testes
+
+<details>
+<summary><strong>🐧 Linux / macOS (Make)</strong></summary>
 
 ```bash
 # Executar testes
@@ -107,11 +161,41 @@ make lint
 make format
 ```
 
+</details>
+
+<details>
+<summary><strong>🪟 Windows (PowerShell)</strong></summary>
+
+```powershell
+# Executar testes
+pytest
+
+# Com cobertura
+pytest --cov=src --cov-report=html
+
+# Linting
+ruff check src/ tests/ config/
+ruff format --check src/ tests/ config/
+
+# Formatação
+ruff format src/ tests/ config/
+ruff check --fix src/ tests/ config/
+```
+
+</details>
+
 ## 🔧 Treinamento
+
+O treinamento do modelo foi realizado no **Google Colab** utilizando o notebook [`notebooks/train_colab.ipynb`](notebooks/train_colab.ipynb), que já contém todas as etapas de preparação e treinamento configuradas para rodar na GPU gratuita do Colab.
+
+**Alternativa local (requer GPU):** Se você possui uma GPU com recursos suficientes, pode realizar o treinamento localmente:
 
 ```bash
 # Preparar dataset
 python scripts/prepare_dataset.py
+
+# Analisar dataset (estatísticas e distribuição de classes)
+python scripts/analyze_dataset.py
 
 # Treinar modelo
 python -m src.training.trainer --data path/to/data.yaml --epochs 30
@@ -121,16 +205,20 @@ python -m src.training.trainer --data path/to/data.yaml --epochs 30
 
 | Categoria | Exemplos |
 |-----------|----------|
-| Compute | EC2, Lambda, EKS, Fargate |
-| Database | RDS, DynamoDB, Aurora, Redis |
-| Storage | S3, EBS, EFS, Glacier |
-| Network | VPC, CloudFront, Route 53 |
-| Security | IAM, WAF, KMS, Cognito |
-| API Gateway | API Gateway, AppSync |
-| Messaging | SQS, SNS, EventBridge |
-| Monitoring | CloudWatch, CloudTrail |
-| ML/AI | SageMaker, Rekognition |
-| DevOps | CodePipeline, CloudFormation |
+| Compute | EC2, Lambda, EKS, Fargate, Beanstalk, Cloud Run |
+| Database | RDS, DynamoDB, Aurora, Redis, Cosmos DB, Firestore |
+| Storage | S3, EBS, EFS, Glacier, Blob Storage, Cloud Storage |
+| Network | VPC, CloudFront, Route 53, ELB, ALB, NLB, CDN |
+| Security | WAF, KMS, GuardDuty, Shield, Secrets Manager, Firewall |
+| Identity | IAM, Cognito, Active Directory Service |
+| API Gateway | API Gateway, AppSync, Apigee |
+| Messaging | SQS, SNS, EventBridge, Kinesis, Pub/Sub |
+| Monitoring | CloudWatch, CloudTrail, X-Ray, Grafana, Prometheus |
+| ML/AI | SageMaker, Rekognition, Comprehend, Vertex AI |
+| DevOps | CodePipeline, CodeBuild, Jenkins, Terraform |
+| Serverless | Amplify, Step Functions, AppFlow |
+| Analytics | Athena, Glue, BigQuery, EMR |
+| Groups | Availability Zone, Region |
 
 ##  Licença
 
