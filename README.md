@@ -92,15 +92,14 @@ Coloque o arquivo `best.pt` (modelo YOLO treinado) na pasta `models/`.
 
 ### 4. Banco de Dados (opcional)
 
+> **Nota:** Se você deseja utilizar a funcionalidade de **histórico de análises**, é necessário que o PostgreSQL esteja em execução. Sem o banco de dados, o sistema não consegue armazenar nem recuperar análises anteriores.
+
 <details>
 <summary><strong>🐧 Linux / macOS</strong></summary>
 
 ```bash
 # Subir PostgreSQL com Docker
 make db-up
-
-# Executar script de inicialização
-psql -h localhost -U postgres -d security_analyzer -f sql/init_db.sql
 ```
 
 </details>
@@ -111,12 +110,11 @@ psql -h localhost -U postgres -d security_analyzer -f sql/init_db.sql
 ```powershell
 # Subir PostgreSQL com Docker
 docker compose up -d
-
-# Executar script de inicialização
-psql -h localhost -U postgres -d security_analyzer -f sql/init_db.sql
 ```
 
 </details>
+
+> **Não é necessário executar o script `init_db.sql` manualmente.** O `docker-compose.yml` já monta esse arquivo na pasta `/docker-entrypoint-initdb.d/` do container PostgreSQL, o que faz com que ele seja executado automaticamente na primeira vez que o container é criado. Basta subir o container e as tabelas serão criadas sozinhas.
 
 ### 5. Executar
 
